@@ -71,7 +71,7 @@ async fn run_state_sync_loop(
     let mut con = connection_manager.get_connection().await;
 
     loop {
-        if !connection_manager.test_connection(&"gantry_opc_client").await {
+        if let Err(_) = connection_manager.check_redis_health("campx_gantry").await {
             continue;
         }
 
@@ -81,7 +81,7 @@ async fn run_state_sync_loop(
             let opc_mapped_vec = opc_mapped.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
             print_key_value_pairs("opc state", &opc_mapped_vec);
             let sp_state = make_opc_input_state(opc_mapped);
-            StateManager::set_state(&mut con, sp_state).await;
+            StateManager::set_state(&mut con, &sp_state).await;
         }
 
         let Some(sp_state) = StateManager::get_state_for_keys(&mut con, &keys).await else {
@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
     let connection_manager = ConnectionManager::new().await;
     StateManager::set_state(
         &mut connection_manager.get_connection().await,
-        make_sp_state(),
+        &make_sp_state(),
     )
     .await;
 
