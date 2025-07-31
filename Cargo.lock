@@ -1361,9 +1361,9 @@ checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "libredox"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "360e552c93fa0e8152ab463bc4c4837fce76a225df11dfaeea66c313de5e61f7"
+checksum = "391290121bad3d37fbddad76d8f5d1c1c314cfc646d143d7e07a3086ddff0ce3"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
@@ -1423,11 +1423,12 @@ checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 [[package]]
 name = "micro_sp"
 version = "0.1.0"
-source = "git+https://github.com/endre90/micro_sp?branch=master#582894da01534f259d8b54697759cdafafe270b9"
+source = "git+https://github.com/endre90/micro_sp?branch=master#927fde42a8b9bf78b8d949c318373c2e7bd72b52"
 dependencies = [
  "async-recursion",
  "chrono",
  "env_logger",
+ "futures",
  "log",
  "nalgebra",
  "nanoid",
