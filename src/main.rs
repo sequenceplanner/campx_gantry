@@ -4,7 +4,6 @@ use clap::Parser;
 use micro_sp::*;
 use once_cell::sync::Lazy;
 use ordered_float::OrderedFloat;
-use tokio::time::interval;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -63,7 +62,7 @@ fn print_key_value_pairs(title: &str, items: &[(String, serde_json::Value)]) {
 async fn run_state_sync_loop(
     state_cb: Arc<Mutex<HashMap<u32, serde_json::Value>>>,
     opc_tx: mpsc::Sender<Vec<(u32, serde_json::Value)>>,
-    connection_manager: &Arc<ConnectionManager>,
+    connection_manager: ConnectionManager,
     inputs: Vec<(&str, u32)>,
     outputs: Vec<(&str, u32)>,
     keys: Vec<String>,
@@ -80,7 +79,10 @@ async fn run_state_sync_loop(
         let state = state_cb.lock().unwrap().clone();
         if state != prev_state {
             let opc_mapped = map_opc_ids_to_keys(&state, &inputs);
-            let opc_mapped_vec = opc_mapped.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
+            let opc_mapped_vec = opc_mapped
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>();
             print_key_value_pairs("opc state", &opc_mapped_vec);
             let sp_state = make_opc_input_state(opc_mapped);
             StateManager::set_state(&mut con, &sp_state).await;
@@ -96,6 +98,30 @@ async fn run_state_sync_loop(
             print_key_value_pairs("sp state", &opc_outputs);
             let opc_outputs_to_send = map_keys_to_opc_ids(&opc_outputs, &outputs);
             let _ = opc_tx.try_send(opc_outputs_to_send);
+        }
+
+        match state.get(&306) {
+            Some(value) => match value.as_f64() {
+                Some(falue_f64) => {
+                    let transform = SPTransform {
+                        translation: SPTranslation {
+                            x: OrderedFloat(0.0 - falue_f64 / 1000.0),
+                            y: OrderedFloat(-0.295),
+                            z: OrderedFloat(0.16),
+                        },
+                        rotation: SPRotation {
+                            x: OrderedFloat(0.0),
+                            y: OrderedFloat(0.0),
+                            z: OrderedFloat(0.0),
+                            w: OrderedFloat(1.0),
+                        },
+                    };
+
+                    let _ = TransformsManager::move_transform(&mut con, "vagn", transform).await;
+                }
+                None => (),
+            },
+            None => (),
         }
 
         prev_state = state;
@@ -142,28 +168,10 @@ async fn main() -> Result<()> {
     )
     .await;
 
-    let con_arc = Arc::new(connection_manager);
-    let con_clone = con_arc.clone();
-    tokio::task::spawn(async move {
-        match gantry_position_updater("sp1", &con_clone).await {
-            Ok(()) => (),
-            Err(e) => log::error!(target: &&format!("main_runner"), "{}", e),
-        }
-    });
-
-
     let state_cb = state.clone();
-    let con_clone = con_arc.clone();
     tokio::task::spawn(async move {
-        let result = run_state_sync_loop(
-            state_cb,
-            opc_tx,
-            &con_clone,
-            inputs,
-            outputs,
-            keys,
-        )
-        .await;
+        let result =
+            run_state_sync_loop(state_cb, opc_tx, connection_manager, inputs, outputs, keys).await;
         if let Err(e) = result {
             println!("Error: {}", e);
         }
@@ -174,7 +182,6 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
 
 fn make_sp_state() -> micro_sp::State {
     use micro_sp::*;
@@ -268,53 +275,4 @@ fn get_json(key: &str, state: &micro_sp::State) -> Option<(String, serde_json::V
         };
         (key.to_string(), json)
     })
-}
-
-async fn gantry_position_updater(
-    sp_id: &str,
-    connection_manager: &Arc<ConnectionManager>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut interval = interval(Duration::from_millis(500));
-
-    log::info!(target: &&format!("gantry_position_updater"), "Online.");
-
-    let mut con = connection_manager.get_connection().await;
-    loop {
-        interval.tick().await;
-        if let Err(_) = connection_manager
-            .check_redis_health(&format!("gantry_position_updater"))
-            .await
-        {
-            continue;
-        }
-        let sp_value = match StateManager::get_sp_value(&mut con, "opc_current_position").await {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let opc_current_position = match sp_value {
-            SPValue::Float64(FloatOrUnknown::Float64(OrderedFloat(float_value))) => float_value,
-            _ => {
-                log::error!(target: &format!("{}_gantry_position_updater", sp_id), 
-                "Some error in getting opc_current_position, setting to 0");
-                0.0
-            }
-        };
-
-        let transform = SPTransform {
-            translation: SPTranslation {
-                x: OrderedFloat(0.0 - opc_current_position / 1000.0),
-                y: OrderedFloat(-0.295),
-                z: OrderedFloat(0.16),
-            },
-            rotation: SPRotation {
-                x: OrderedFloat(0.0),
-                y: OrderedFloat(0.0),
-                z: OrderedFloat(0.0),
-                w: OrderedFloat(1.0),
-            },
-        };
-
-        TransformsManager::move_transform(&mut con, "vagn", transform).await?;
-    }
 }
