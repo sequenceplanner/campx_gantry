@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+log = "0.4.22"
 futures = "0.3.15"
 tokio = { version = "1", features = ["full"] }
 opcua = { git = "https://github.com/einarmo/opcua", features = ["client"] }
@@ -14,3 +15,4 @@ arc-swap = "1.7.1"
 once_cell = "1.20.2"
 serde = { version = "1.0.219", features = ["derive"] }
 micro_sp = {git = "https://github.com/endre90/micro_sp", branch = "master"}
+ordered-float = {version = "3.4.0", features = ["serde"] }
