@@ -69,13 +69,12 @@ async fn run_state_sync_loop(
 ) -> Result<()> {
     let mut prev_state = HashMap::new();
     let mut prev_opc_outputs = vec![];
-    let mut con = connection_manager.get_connection().await;
-
     loop {
         if let Err(_) = connection_manager.check_redis_health("campx_gantry").await {
             continue;
         }
 
+        let mut con = connection_manager.get_connection().await;
         let state = state_cb.lock().unwrap().clone();
         if state != prev_state {
             let opc_mapped = map_opc_ids_to_keys(&state, &inputs);
@@ -133,6 +132,7 @@ async fn run_state_sync_loop(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    initialize_env_logger();
     let state = Arc::new(Mutex::new(HashMap::<u32, serde_json::Value>::new()));
     let (opc_tx, opc_rx) = mpsc::channel::<Vec<(u32, serde_json::Value)>>(32);
 
