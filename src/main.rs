@@ -87,7 +87,7 @@ async fn run_state_sync_loop(
             StateManager::set_state(&mut con, &sp_state).await;
         }
 
-        let Some(sp_state) = StateManager::get_state_for_keys(&mut con, &keys).await else {
+        let Some(sp_state) = StateManager::get_state_for_keys(&mut con, &keys, "campx_gantry").await else {
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         };
@@ -193,19 +193,19 @@ fn make_sp_state() -> micro_sp::State {
     let done_flag = bv!("opc_done_flag");
     let current_position = fv!("opc_current_position");
 
-    let state = state.add(assign!(start_flag, false.to_spvalue()));
-    let state = state.add(assign!(reference_position, 0.0.to_spvalue()));
-    let state = state.add(assign!(reference_speed, 0.0.to_spvalue()));
-    let state = state.add(assign!(done_flag, false.to_spvalue()));
-    let state = state.add(assign!(current_position, 0.0.to_spvalue()));
+    let state = state.add(assign!(start_flag, false.to_spvalue()), "campx_gantry");
+    let state = state.add(assign!(reference_position, 0.0.to_spvalue()), "campx_gantry");
+    let state = state.add(assign!(reference_speed, 0.0.to_spvalue()), "campx_gantry");
+    let state = state.add(assign!(done_flag, false.to_spvalue()), "campx_gantry");
+    let state = state.add(assign!(current_position, 0.0.to_spvalue()), "campx_gantry");
 
     let write_start_flag = bv!("opc_write_start_flag");
     let write_reference_position = fv!("opc_write_reference_position");
     let write_reference_speed = fv!("opc_write_reference_speed");
 
-    let state = state.add(assign!(write_start_flag, false.to_spvalue()));
-    let state = state.add(assign!(write_reference_position, 0.0.to_spvalue()));
-    let state = state.add(assign!(write_reference_speed, 0.0.to_spvalue()));
+    let state = state.add(assign!(write_start_flag, false.to_spvalue()), "campx_gantry");
+    let state = state.add(assign!(write_reference_position, 0.0.to_spvalue()), "campx_gantry");
+    let state = state.add(assign!(write_reference_speed, 0.0.to_spvalue()), "campx_gantry");
 
     state
 }
@@ -228,35 +228,35 @@ fn make_opc_input_state(opc_state: HashMap<String, serde_json::Value>) -> micro_
         .get("opc_start_flag")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let state = state.add(assign!(start_flag, start_flag_v.to_spvalue()));
+    let state = state.add(assign!(start_flag, start_flag_v.to_spvalue()), "campx_gantry");
 
     let reference_position = fv!("opc_reference_position");
     let refpos_v = opc_state
         .get("opc_reference_position")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let state = state.add(assign!(reference_position, refpos_v.to_spvalue()));
+    let state = state.add(assign!(reference_position, refpos_v.to_spvalue()), "campx_gantry");
 
     let reference_speed = fv!("opc_reference_speed");
     let refspeed_v = opc_state
         .get("opc_reference_speed")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let state = state.add(assign!(reference_speed, refspeed_v.to_spvalue()));
+    let state = state.add(assign!(reference_speed, refspeed_v.to_spvalue()), "campx_gantry");
 
     let done_flag = bv!("opc_done_flag");
     let done_flag_v = opc_state
         .get("opc_done_flag")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let state = state.add(assign!(done_flag, done_flag_v.to_spvalue()));
+    let state = state.add(assign!(done_flag, done_flag_v.to_spvalue()), "campx_gantry");
 
     let current_pos = fv!("opc_current_position");
     let current_pos_v = opc_state
         .get("opc_current_position")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let state = state.add(assign!(current_pos, current_pos_v.to_spvalue()));
+    let state = state.add(assign!(current_pos, current_pos_v.to_spvalue()), "campx_gantry");
 
     state
 }

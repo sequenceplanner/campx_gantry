@@ -1,0 +1,41 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: campx_gantry_redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      # Host port only. Other containers reach Redis as redis:6379.
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  gantry:
+    build:
+      context: .
+    image: campx/gantry:latest
+    container_name: campx_gantry
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # The PLC's OPC UA endpoint and namespace index -- change these.
+      OPC_URI: ${OPC_URI:-opc.tcp://192.168.1.33:4840}
+      OPC_NAMESPACE: ${OPC_NAMESPACE:-4}
+      # Redis inside the compose network; leave as is.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - gantry-pki:/app/pki
+    # Lets OPC_URI point at an OPC server running on the docker host
+    # via opc.tcp://host.docker.internal:4840
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  gantry-pki:

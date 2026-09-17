@@ -1,0 +1,9 @@
+target/
+pki/
+.git/
+.gitignore
+Dockerfile
+docker-compose.yml
+*.md
+examples/
+.env
