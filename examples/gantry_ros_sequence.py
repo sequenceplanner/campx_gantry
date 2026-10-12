@@ -26,7 +26,7 @@ def move(node, client, position, speed):
     goal = Move.Goal(position=position, speed=speed)
     send_future = client.send_goal_async(
         goal,
-        feedback_callback=lambda fb: print("  at:", fb.feedback.current_position),
+        feedback_callback=lambda fb: print(f"  [{fb.feedback.status}] at:", fb.feedback.current_position),
     )
     rclpy.spin_until_future_complete(node, send_future)
     handle = send_future.result()

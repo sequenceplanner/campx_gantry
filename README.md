@@ -46,6 +46,7 @@ Everything lives in `.env` (copied from `.env.example`):
 | `GANTRY_ACTION_NAME`  | `/gantry/move`            | another action name                              |
 | `GANTRY_GOAL_TIMEOUT` | `120`                     | seconds a move may take before the goal aborts   |
 | `GANTRY_STATE_TOPIC`  | `/gantry/state`           | another topic for the read values                |
+| `GANTRY_JOINT_STATES_TOPIC` | `/joint_states`     | where the robot's joint states are, for the home check |
 
 `REDIS_HOST` / `REDIS_PORT` are set by `docker-compose.yml` to `redis:6379`, the
 address inside the compose network. Leave them alone.
@@ -174,7 +175,33 @@ string message            # why it failed; empty on success
 float64 position          # where the gantry ended up
 ---
 float64 current_position  # feedback, ~10 Hz
+string status             # "moving", or why the goal is about to abort
 ```
+
+**Robot home check.** Before a goal writes anything, the server checks that the
+UR robot is at its home pose, so the gantry can't move into it. Every joint in
+`/joint_states` has to be within 2% of its own home value:
+
+| joint                 | home (rad)  | ± 2%   |
+| --------------------- | ----------- | ------ |
+| `elbow_joint`         | -2.3067     | 0.0461 |
+| `shoulder_lift_joint` | -0.6355     | 0.0127 |
+| `shoulder_pan_joint`  | -1.6492     | 0.0330 |
+| `wrist_1_joint`       | -3.3036     | 0.0661 |
+| `wrist_2_joint`       | -1.6533     | 0.0331 |
+| `wrist_3_joint`       | 3.5640      | 0.0713 |
+
+If any joint is outside that, or is missing, or no joint states have arrived in
+the last second, the goal is aborted right away and nothing goes to the PLC. The
+reason is printed in the server log, and sent as the feedback `status` and the
+result `message`, e.g.
+`robot not at home: shoulder_lift_joint at -0.6555, home -0.6355 ± 0.0127`.
+The check runs once per goal, before the move. The robot isn't watched while
+the gantry is moving. The home pose and tolerance are `ROBOT_HOME` and
+`ROBOT_HOME_TOLERANCE` in `src/bin/ros.rs`.
+
+The `ros` service has to be on the same `ROS_DOMAIN_ID` as the robot driver to
+see `/joint_states`.
 
 Each goal goes through the same Redis keys as the Python example above, one
 step at a time. Before each next step it waits until the read values (the keys

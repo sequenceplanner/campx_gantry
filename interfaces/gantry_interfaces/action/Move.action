@@ -9,3 +9,5 @@ string message
 float64 position
 ---
 float64 current_position
+# What the server is doing, e.g. "moving", or why it is about to abort.
+string status

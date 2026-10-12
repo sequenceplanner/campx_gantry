@@ -7,6 +7,10 @@
 //! running for anything to reach the PLC.
 //!
 //! It also publishes the PLC's read values as `gantry_interfaces/msg/State`.
+//!
+//! Before a goal touches the PLC, the UR robot has to be at its home pose
+//! (from `/joint_states`), so the gantry can't move into it. Otherwise the
+//! goal is aborted.
 
 use anyhow::Result;
 use clap::Parser;
@@ -14,7 +18,9 @@ use futures::{Stream, StreamExt};
 use micro_sp::*;
 use r2r::gantry_interfaces::action::Move;
 use r2r::gantry_interfaces::msg::State as GantryState;
-use std::sync::Arc;
+use r2r::sensor_msgs::msg::JointState;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
@@ -24,6 +30,21 @@ const LOG_TARGET: &str = "campx_gantry_ros";
 /// How long the PLC gets to echo a write back before the goal is aborted.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL_PERIOD: Duration = Duration::from_millis(100);
+
+/// The robot's home pose in rad, by joint name as in `/joint_states`. The
+/// gantry only moves while the robot is here, so the two can't collide.
+const ROBOT_HOME: [(&str, f64); 6] = [
+    ("elbow_joint", -2.3067116737365723),
+    ("shoulder_lift_joint", -0.635478214626648),
+    ("shoulder_pan_joint", -1.6491511503802698),
+    ("wrist_1_joint", -3.303591867486471),
+    ("wrist_2_joint", -1.6532829443561),
+    ("wrist_3_joint", 3.5639536380767822),
+];
+/// Each joint must be within this fraction of its own home value.
+const ROBOT_HOME_TOLERANCE: f64 = 0.02;
+/// Joint states older than this don't count as knowing where the robot is.
+const JOINT_STATES_MAX_AGE: Duration = Duration::from_secs(1);
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -39,6 +60,49 @@ struct Args {
     /// Topic the PLC's read values are published on
     #[arg(long, env = "GANTRY_STATE_TOPIC", default_value_t = String::from("/gantry/state"))]
     state_topic: String,
+
+    /// Topic the robot's joint states are read from, for the home check
+    #[arg(long, env = "GANTRY_JOINT_STATES_TOPIC", default_value_t = String::from("/joint_states"))]
+    joint_states_topic: String,
+}
+
+/// The robot's latest joint positions, and where they came from.
+#[derive(Clone)]
+struct Robot {
+    topic: String,
+    latest: Arc<Mutex<Option<(Instant, HashMap<String, f64>)>>>,
+}
+
+impl Robot {
+    /// `Ok` if every joint is within [`ROBOT_HOME_TOLERANCE`] of [`ROBOT_HOME`],
+    /// otherwise what is off. Missing or stale joint states count as not home.
+    fn check_home(&self) -> Result<(), String> {
+        let latest = self.latest.lock().unwrap();
+        let Some((stamp, positions)) = latest.as_ref() else {
+            return Err(format!("no joint states received on {}", self.topic));
+        };
+        if stamp.elapsed() > JOINT_STATES_MAX_AGE {
+            return Err(format!(
+                "no joint states on {} for {:.1}s",
+                self.topic,
+                stamp.elapsed().as_secs_f64()
+            ));
+        }
+
+        let mut off = vec![];
+        for (name, home) in ROBOT_HOME {
+            let tolerance = ROBOT_HOME_TOLERANCE * home.abs();
+            match positions.get(name) {
+                None => off.push(format!("{} missing", name)),
+                Some(p) if (p - home).abs() > tolerance => off.push(format!(
+                    "{} at {:.4}, home {:.4} ± {:.4}",
+                    name, p, home, tolerance
+                )),
+                Some(_) => {}
+            }
+        }
+        if off.is_empty() { Ok(()) } else { Err(off.join("; ")) }
+    }
 }
 
 /// What the PLC currently reports, as mirrored into Redis by the driver.
@@ -66,6 +130,9 @@ async fn main() -> Result<()> {
     let publisher =
         node.create_publisher::<GantryState>(&args.state_topic, r2r::QosProfile::default())?;
     log::info!(target: LOG_TARGET, "Publishing state on {}.", args.state_topic);
+    let mut joint_states =
+        node.subscribe::<JointState>(&args.joint_states_topic, r2r::QosProfile::default())?;
+    log::info!(target: LOG_TARGET, "Reading robot joints from {}.", args.joint_states_topic);
 
     // spin_once blocks, so the node gets a thread of its own.
     std::thread::spawn(move || {
@@ -74,8 +141,20 @@ async fn main() -> Result<()> {
         }
     });
 
+    let robot = Robot {
+        topic: args.joint_states_topic.clone(),
+        latest: Arc::new(Mutex::new(None)),
+    };
+    let latest = robot.latest.clone();
+    tokio::task::spawn(async move {
+        while let Some(msg) = joint_states.next().await {
+            let positions = msg.name.into_iter().zip(msg.position).collect();
+            *latest.lock().unwrap() = Some((Instant::now(), positions));
+        }
+    });
+
     tokio::task::spawn(publish_state(publisher, con.clone()));
-    serve(requests, con, Duration::from_secs(args.goal_timeout)).await;
+    serve(requests, con, robot, Duration::from_secs(args.goal_timeout)).await;
     Ok(())
 }
 
@@ -102,6 +181,7 @@ async fn publish_state(publisher: r2r::Publisher<GantryState>, mut con: SPConnec
 async fn serve(
     mut requests: impl Stream<Item = r2r::ActionServerGoalRequest<Move::Action>> + Unpin,
     con: SPConnection,
+    robot: Robot,
     goal_timeout: Duration,
 ) {
     // The gantry can only do one move at a time.
@@ -125,8 +205,9 @@ async fn serve(
 
         let busy = busy.clone();
         let con = con.clone();
+        let robot = robot.clone();
         tokio::task::spawn(async move {
-            run_goal(con, goal, cancel, goal_timeout).await;
+            run_goal(con, goal, cancel, &robot, goal_timeout).await;
             busy.store(false, Ordering::SeqCst);
         });
     }
@@ -136,10 +217,33 @@ async fn run_goal(
     mut con: SPConnection,
     mut goal: r2r::ActionServerGoal<Move::Action>,
     mut cancel: impl Stream<Item = r2r::ActionServerCancelRequest> + Unpin,
+    robot: &Robot,
     goal_timeout: Duration,
 ) {
     let Move::Goal { position, speed } = goal.goal.clone();
     log::info!(target: LOG_TARGET, "Goal {}: move to {} at {}.", goal.uuid, position, speed);
+
+    // Checked once, before anything is written, so an abort here leaves the
+    // PLC untouched.
+    if let Err(off) = robot.check_home() {
+        let message = format!("robot not at home: {}", off);
+        log::error!(target: LOG_TARGET, "Goal {} aborted: {}", goal.uuid, message);
+        let current_position = read(&mut con).await.map(|r| r.current_position).unwrap_or(0.0);
+        let _ = goal.publish_feedback(Move::Feedback {
+            current_position,
+            status: message.clone(),
+        });
+        let result = Move::Result {
+            success: false,
+            message,
+            position: current_position,
+        };
+        if let Err(e) = goal.abort(result) {
+            log::error!(target: LOG_TARGET, "Could not send result of goal {}: {}", goal.uuid, e);
+        }
+        return;
+    }
+    log::info!(target: LOG_TARGET, "Goal {}: robot is at home.", goal.uuid);
 
     let mut con_move = con.clone();
     let outcome = tokio::select! {
@@ -228,6 +332,7 @@ async fn move_gantry(
         if let Some(r) = read(con).await {
             let _ = goal.publish_feedback(Move::Feedback {
                 current_position: r.current_position,
+                status: "moving".to_string(),
             });
             if !r.done_flag {
                 stale_done = false;

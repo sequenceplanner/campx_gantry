@@ -63,6 +63,9 @@ services:
       GANTRY_ACTION_NAME: ${GANTRY_ACTION_NAME:-/gantry/move}
       GANTRY_GOAL_TIMEOUT: ${GANTRY_GOAL_TIMEOUT:-120}
       GANTRY_STATE_TOPIC: ${GANTRY_STATE_TOPIC:-/gantry/state}
+      # The UR robot's joints; goals abort unless it is at home. Must be on
+      # the same ROS_DOMAIN_ID as the robot driver.
+      GANTRY_JOINT_STATES_TOPIC: ${GANTRY_JOINT_STATES_TOPIC:-/joint_states}
       RUST_LOG: ${RUST_LOG:-info}
     restart: unless-stopped
 
