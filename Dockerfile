@@ -23,6 +23,10 @@ ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" && \
     git config --global --add url."https://github.com/".insteadOf "git@github.com:"
 
+# Bump to force everything below to rebuild, while keeping the toolchain
+# layers above: --build-arg CACHE_BUST=$(date +%s)
+ARG CACHE_BUST=0
+
 # The action interface is a regular ROS package; r2r generates its Rust types
 # from whatever is sourced, so it has to be built and sourced before cargo runs.
 WORKDIR /build

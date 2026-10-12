@@ -18,6 +18,8 @@ services:
       context: .
       args:
         ROS_DISTRO: ${ROS_DISTRO:-lyrical}
+        # CACHE_BUST=$(date +%s) docker compose build  -> rebuild past the toolchain
+        CACHE_BUST: ${CACHE_BUST:-0}
     image: campx/gantry:latest
     container_name: campx_gantry
     depends_on:
