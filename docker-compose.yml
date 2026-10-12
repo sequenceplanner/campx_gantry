@@ -16,6 +16,8 @@ services:
   gantry:
     build:
       context: .
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-lyrical}
     image: campx/gantry:latest
     container_name: campx_gantry
     depends_on:
@@ -35,6 +37,33 @@ services:
     # via opc.tcp://host.docker.internal:4840
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ROS 2 action server (gantry_interfaces/action/Move). Same image as gantry;
+  # it drives the PLC through the Redis keys gantry mirrors, so it needs both.
+  ros:
+    image: campx/gantry:latest
+    container_name: campx_gantry_ros
+    command: ["ros"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      gantry:
+        condition: service_started
+    # Host networking so ROS 2 clients on this machine and the LAN can discover
+    # the action server. That also means Redis is reached via its host port.
+    network_mode: host
+    environment:
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: ${REDIS_HOST_PORT:-6379}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      # Shared-memory transport between a container and the host's ROS nodes
+      # discovers fine but then moves no data; plain UDP works everywhere.
+      FASTDDS_BUILTIN_TRANSPORTS: UDPv4
+      GANTRY_ACTION_NAME: ${GANTRY_ACTION_NAME:-/gantry/move}
+      GANTRY_GOAL_TIMEOUT: ${GANTRY_GOAL_TIMEOUT:-120}
+      GANTRY_STATE_TOPIC: ${GANTRY_STATE_TOPIC:-/gantry/state}
+      RUST_LOG: ${RUST_LOG:-info}
     restart: unless-stopped
 
 volumes:

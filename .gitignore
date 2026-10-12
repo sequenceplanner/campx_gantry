@@ -1,3 +1,7 @@
 /target
 **/pki
 .env
+/build
+/install
+/log
+/.venv

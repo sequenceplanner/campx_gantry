@@ -1,0 +1,11 @@
+# Move the gantry to `position` at `speed`, in the PLC's units.
+float64 position
+float64 speed
+---
+bool success
+# Why the goal failed; empty on success.
+string message
+# Where the gantry was when the goal ended.
+float64 position
+---
+float64 current_position

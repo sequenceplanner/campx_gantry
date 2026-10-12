@@ -1,0 +1,3 @@
+# Redis example (gantry_client.py). The ROS examples use rclpy from the ROS
+# install instead; see "Python virtual environment" in the README.
+redis>=5

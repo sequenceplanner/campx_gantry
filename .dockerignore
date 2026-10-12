@@ -7,3 +7,7 @@ docker-compose.yml
 *.md
 examples/
 .env
+build/
+install/
+log/
+.venv/

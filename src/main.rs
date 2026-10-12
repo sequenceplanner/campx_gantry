@@ -92,11 +92,17 @@ async fn run_state_sync_loop(
             continue;
         };
 
+        // Outputs only go out when they change, so a write that never reaches
+        // the PLC must not count as sent. The OPC side drops writes to nodes it
+        // hasn't read yet (it needs their data type), so wait for all of them.
         let opc_outputs = extract_opc_outputs(&sp_state);
-        if opc_outputs != prev_opc_outputs {
+        let outputs_writable = outputs.iter().all(|(_, id)| state.contains_key(id));
+        if outputs_writable && opc_outputs != prev_opc_outputs {
             print_key_value_pairs("sp state", &opc_outputs);
             let opc_outputs_to_send = map_keys_to_opc_ids(&opc_outputs, &outputs);
-            let _ = opc_tx.try_send(opc_outputs_to_send);
+            if opc_tx.try_send(opc_outputs_to_send).is_ok() {
+                prev_opc_outputs = opc_outputs;
+            }
         }
 
         match state.get(&306) {
@@ -124,7 +130,6 @@ async fn run_state_sync_loop(
         }
 
         prev_state = state;
-        prev_opc_outputs = opc_outputs;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
